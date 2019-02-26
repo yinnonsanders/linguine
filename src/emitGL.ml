@@ -136,7 +136,7 @@ and comp_comm (c : comm list) : string =
             ^ (match c2 with | Some c2 -> "{ " ^ (comp_comm c2) ^ " }" | None -> "")
             ^ (comp_comm t))
         | For (c1, (b, _), c2, cl) -> 
-            ("for (" ^ (comp_comm [c1]) ^ " " ^ (comp_exp b) ^ "; " ^ (comp_comm [c2] |> (String.split_on_char ';') |> List.hd) ^ ")"
+            ("for (" ^ (comp_comm [c1]) ^ (comp_exp b) ^ ";" ^ (comp_comm [c2] |> (String.split_on_char ';') |> List.hd) ^ ")"
             ^ "{ " ^ (comp_comm cl) ^ " }" ^ (comp_comm t))
         | Return Some (e, _) -> "return " ^ (comp_exp e) ^ ";" ^ (comp_comm t)
         | Return None -> "return;" ^ (comp_comm t)
@@ -174,12 +174,12 @@ let rec generate_fn_generics (orig : string) (((id, (p, rt, pm)), cl) : fn) : st
 let comp_fn (f : fn) : string = 
     debug_print ">> comp_fn";
     let ((id, (p, rt, pm)), cl) = f in
-    match id with 
-    | "main" -> "void main() {" ^ (comp_comm cl) ^ "}"
-    | _ -> 
-        let param_string = String.concat ", " (List.map (fun (i, t) -> (string_of_glsl_typ t) ^ " " ^ i) p) in
-        let fn_str = ((string_of_glsl_typ rt) ^ " " ^ id ^ "(" ^ param_string ^ "){" ^ (comp_comm cl) ^ "}") in
-        generate_fn_generics fn_str f
+    let param_string = String.concat ", " (List.map (fun (i, t) -> (string_of_glsl_typ t) ^ " " ^ i) p) in
+    let fn_str = let type_id_string = match id with
+        | "main" -> "void main"
+        | _ -> (string_of_glsl_typ rt) ^ " " ^ id
+    in (type_id_string ^ "(" ^ param_string ^ "){" ^ (comp_comm cl) ^ "}") in
+    generate_fn_generics fn_str f
 
 
 let rec comp_fn_lst (f : fn list) : string =

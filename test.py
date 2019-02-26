@@ -77,13 +77,33 @@ def main():
             basename = filename[:-4]  # Remove the extension
             outname = basename + ".out"
             expectname = basename + ".expect"
-            ling_args = [] if path == "test/compiler" else ["-i"]
-            with open(outname, "w") as f:
-                subprocess.call(
-                    ["lingc"] + ling_args + [filename],
-                    stdout=f,
-                    stderr=f,
-                )
+            ling_args = [] if path == "test/compiler" else ["-j"]
+            if path == "test/compiler":
+                with open(outname, "w") as f:
+                    subprocess.call(
+                        ["lingc"] + [filename],
+                        stdout=f,
+                        stderr=f,
+                    )
+            else:
+                tsname = basename + ".ts"
+                jsname = basename + ".js"
+                with open(tsname, "w") as f, open(outname, "w") as out:
+                    rc = subprocess.call(
+                        ["lingc"] + ["-j"] + [filename],
+                        stdout=f,
+                        stderr=out,
+                    )
+                    if not rc:
+                        subprocess.call(
+                            ["tsc"] + [tsname],
+                            stdout=out,
+                        )
+                        subprocess.call(
+                            ["node"] + [jsname],
+                            stdout=out,
+                            stderr=out,
+                        )
             # We write and then read to avoid memory shenanigans
             # (this might be worse actually, but I don't think it matters)
             try:
