@@ -102,74 +102,33 @@ and comp_exp (e : exp) : string =
                 in
                 call_lib_func ("vec" ^ (string_of_int n)) "scale" [e1;scalar]
             | MatTyp (ldim, _), VecTyp rdim ->
-                let typ_string = "vec" ^ (string_of_int rdim) in
-                if ldim = rdim then call_lib_func typ_string ("transformMat" ^ (string_of_int rdim)) [e2;e1]
-                else ""
+                if ldim = rdim then call_lib_func ("vec" ^ (string_of_int rdim)) ("transformMat" ^ (string_of_int rdim)) [e2;e1]
+                else if ldim > rdim then "__vec" ^ (string_of_int ldim) ^ "transformMat" ^ (string_of_int ldim) ^ "(__vec" ^ (string_of_int rdim) ^ "to" ^ (string_of_int ldim) ^ "(" ^  (comp_exp e2) ^ ")," ^ (comp_exp e1) ^ ")"
+                else "__vec" ^ (string_of_int rdim) ^ "to" ^ (string_of_int ldim) ^ "(" ^ (call_lib_func ("vec" ^ (string_of_int rdim)) ("transformMat" ^ (string_of_int rdim)) [e2;e1]) ^ ")"
             | IntTyp, MatTyp (m,n) | FloatTyp, MatTyp (m,n) ->
                 call_lib_func ("mat" ^ (string_of_int (max m n))) "multiplyScalar" [e2;e1]
             | MatTyp (m,n), IntTyp | MatTyp (m,n), FloatTyp ->
                 call_lib_func ("mat" ^ (string_of_int (max m n))) "multiplyScalar" [e1;e2]
-            | MatTyp (ldim, _), MatTyp (_, rdim) ->
-                let typ_string = "mat" ^ (string_of_int (max ldim rdim)) in
-                if op = Eq then typ_string ^ ".equals(" ^ (comp_exp e1) ^ "," ^ (comp_exp e2) ^ ")"
-                else
-                    let op_string =
-                        match op with
-                        | Plus -> "add"
-                        | Minus -> "sub"
-                        | Div -> "div"
-                        | Times  -> "mul"
-                        | _ -> failwith ("Cannot apply " ^ (binop_string op) ^ " to matrices")
-                    in
-                    call_lib_func typ_string op_string [e1;e2]
-                (* if ldim = rdim then call_lib_func typ_string "mul" [e1;e2]
-                else "" *)
+            | MatTyp (ldim, idim), MatTyp (_, rdim) ->
+                let typ_string = "mat" ^ (string_of_int (max (max ldim rdim) idim)) in
+                begin
+                    match op with
+                    | Plus -> call_lib_func typ_string "add" [e1;e2]
+                    | Minus -> call_lib_func typ_string "sub" [e1;e2]
+                    | Div -> call_lib_func typ_string "div" [e1;e2]
+                    | Eq -> typ_string ^ ".equals(" ^ (comp_exp e1) ^ "," ^ (comp_exp e2) ^ ")"
+                    | Times ->
+                        if ldim = rdim && ldim >= idim then call_lib_func typ_string "mul" [e1;e2]
+                        else if ldim = rdim then "__" ^ typ_string ^ "to" ^ (string_of_int ldim) ^ "(" ^ (call_lib_func typ_string "mul" [e1;e2]) ^ ")"
+                        else if idim >= ldim && idim >= rdim then "__" ^ typ_string ^ "to" ^ (string_of_int (max ldim rdim)) ^ "(" ^ (call_lib_func typ_string "mul" [e1;e2]) ^ ")"
+                        else if ldim > rdim then "__" ^ typ_string ^ "mul(" ^ (comp_exp e1) ^ ",__mat" ^ (string_of_int (max idim rdim)) ^ "to" ^ (string_of_int ldim) ^ "(" ^ (comp_exp e2) ^ "))"
+                        else if rdim > ldim then "__" ^ typ_string ^ "mul(" ^ "__mat" ^ (string_of_int (max idim ldim)) ^ "to" ^ (string_of_int rdim) ^ "(" ^ (comp_exp e1) ^ ")," ^ (comp_exp e2) ^ ")"
+                        else failwith "Impossible condition"
+                    | _ -> failwith ("Cannot apply " ^ (binop_string op) ^ " to matrices")
+                end
             | _ -> "(" ^ string_of_binop op (comp_exp e1) (comp_exp e2) ^ ")"
         end
     | FnInv (f, args) -> f ^ "(" ^ (String.concat "," (List.map comp_exp args)) ^ ")"
-
-(* let comp_assign_mat_vec (x : id) (e : exp) (typ_str : string) (n : int) : string =
-    let func, args = match e with
-        | Val v -> "set", comp_value v
-        | Var _ | FnInv _ -> "copy", comp_exp e
-        | Arr el ->
-            let rec comp_args el = match el with
-                | (e, FloatTyp)::tl | (e, IntTyp)::tl -> (comp_exp e)::(comp_args tl)
-                | (Arr el, VecTyp _)::tl -> (List.map (fun (e,t) -> comp_exp e) el)@(comp_args tl)
-                | _ -> []
-            in "set", String.concat "," (comp_args el)
-        | Unop (op, (e, t)) ->
-            begin
-                match op with
-                | Neg -> "negate", comp_exp e
-                | _ -> failwith "Cannot apply this operator to create vector or matrix"
-            end
-        | Binop (op, (e1, t1), (e2, t2)) ->
-            match op with
-            | Plus -> "add", (comp_exp e1) ^ "," ^ (comp_exp e2)
-            | Minus -> "sub", (comp_exp e1) ^ "," ^ (comp_exp e2)
-            | Div -> "div", (comp_exp e1) ^ "," ^ (comp_exp e2)
-            | CTimes ->
-                begin
-                    match t1, t2 with
-                    | VecTyp _, VecTyp _ -> "mul", (comp_exp e1) ^ "," ^ (comp_exp e2)
-                    | _ -> failwith "component-wise multiplication can only be applied to vectors"
-                end
-            | Times ->
-                begin
-                    match t1, t2 with
-                    | VecTyp _, IntTyp | VecTyp _, FloatTyp -> "scale", (comp_exp e1) ^ "," ^ (comp_exp e2)
-                    | IntTyp, VecTyp _ | FloatTyp, VecTyp _ -> "scale", (comp_exp e2) ^ "," ^ (comp_exp e1)
-                    | MatTyp _, IntTyp | MatTyp _, FloatTyp -> "multiplyScalar", (comp_exp e1) ^ "," ^ (comp_exp e2)
-                    | IntTyp, MatTyp _ | FloatTyp, MatTyp _ -> "multiplyScalar", (comp_exp e2) ^ "," ^ (comp_exp e1)
-                    | VecTyp _, MatTyp _ -> "transformMat" ^ (string_of_int n), (comp_exp e1) ^ "," ^ (comp_exp e2)
-                    | MatTyp _, VecTyp _ -> "transformMat" ^ (string_of_int n), (comp_exp e2) ^ "," ^ (comp_exp e1)
-                    | MatTyp _, MatTyp _ -> "mul", (comp_exp e1) ^ "," ^ (comp_exp e2)
-                    | _ -> failwith ("cannot multiply " ^ string_of_typ t1 ^ " by " ^ string_of_typ t2 ^ " to produce vector or matrix")
-                end
-            | Eq | Leq | Lt | Geq | Gt | Or | And | Index -> failwith ((binop_string op) ^ " cannot result in vector or matrix")
-    in
-    typ_str ^ (string_of_int n) ^ "." ^ func ^ "(" ^ x ^ "," ^ args ^ ");" *)
 
 let comp_assign (x : id) ((e, t) : texp) : string =
     match t with
@@ -266,7 +225,19 @@ let util_funcs =
             ("mat4", "sub", "a,b");
             ("mat4", "mul", "a,b");
             ("mat4", "multiplyScalar", "a,b");
-        ])
+        ]) ^
+    "function __vec2to3(v:vec2):vec3{return vec3.fromValues(v[0],v[1],0);}" ^
+    "function __vec2to4(v:vec2):vec4{return vec4.fromValues(v[0],v[1],0,0);}" ^
+    "function __vec3to4(v:vec3):vec4{return vec4.fromValues(v[0],v[1],v[2],0);}" ^
+    "function __vec4to3(v:vec4):vec3{return vec3.fromValues(v[0],v[1],v[2]);}" ^
+    "function __vec4to2(v:vec4):vec2{return vec2.fromValues(v[0],v[1]);}" ^
+    "function __vec3to2(v:vec3):vec2{return vec2.fromValues(v[0],v[1]);}" ^
+    "function __mat2to3(v:mat2):mat3{return mat3.fromValues(v[0],v[1],0,v[2],v[3],0,0,0,0);}" ^
+    "function __mat2to4(v:mat2):mat4{return mat4.fromValues(v[0],v[1],0,0,v[2],v[3],0,0,0,0,0,0,0,0,0,0);}" ^
+    "function __mat3to4(v:mat3):mat4{return mat4.fromValues(v[0],v[1],v[2],0,v[3],v[4],v[5],0,v[6],v[7],v[8],0,0,0,0,0);}" ^
+    "function __mat4to3(v:mat4):mat3{return mat3.fromValues(v[0],v[1],v[2],v[4],v[5],v[6],v[8],v[9],v[10]);}" ^
+    "function __mat4to2(v:mat4):mat2{return mat2.fromValues(v[0],v[1],v[4],v[5]);}" ^
+    "function __mat3to2(v:mat3):mat2{return mat2.fromValues(v[0],v[1],v[3],v[4]);}"
 
 let rec compile_program (prog : prog) (global_vars : global_vars) : string =
     debug_print ">> compile_programJS";
